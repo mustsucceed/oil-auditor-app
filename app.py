@@ -5,26 +5,24 @@ from groq import Groq
 from io import StringIO
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="DataFlow Automations", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="VisaVault Pro", page_icon="🛡️", layout="wide")
 
 # --- SECURE API ---
 try:
     if "GROQ_API_KEY" in st.secrets:
         API_KEY = st.secrets["GROQ_API_KEY"]
     else:
-        st.error("🚨 API Key Missing. Check Secrets.")
+        st.error("🚨 API Key Missing.")
         st.stop()
 except:
     st.warning("⚠️ Local Run? Check secrets.toml")
     st.stop()
 
 # --- SIDEBAR ---
-st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=80)
-st.sidebar.title("Navigation")
-st.sidebar.success("✅ System Online")
-page = st.sidebar.radio("Go to:", ["🏠 Home / Portfolio", "🚛 Logistics Auditor", "🛂 Visa Statement Auditor"])
+st.sidebar.title("🛡️ VisaVault")
+page = st.sidebar.radio("Menu", ["🏠 Home", "🛂 Visa Auditor"])
 
-# --- HELPER FUNCTION ---
+# --- HELPER ---
 def clean_money(val):
     if not val: return 0.0
     s = str(val).replace(",", "").replace("₦", "").replace("Dr", "").replace("Cr", "").strip()
@@ -33,89 +31,12 @@ def clean_money(val):
     except:
         return 0.0
 
-# ==========================================
-# PAGE 1: HOME
-# ==========================================
-if page == "🏠 Home / Portfolio":
-    st.title("🚀 DataFlow Automations Nigeria")
-    st.markdown("### We turn piles of Paperwork into Profit.")
-    st.divider()
+if page == "🏠 Home":
+    st.title("DataFlow Automations")
+    st.info("Select 'Visa Auditor' in the sidebar.")
 
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.info("👋 **Status:** Open for Business")
-        st.markdown("**📍 Location:** Lagos, Nigeria")
-        st.markdown("🟢 **Server:** Secure & Encrypted")
-
-    with col2:
-        st.markdown("""
-        ### Hi, I am a Python Automation Specialist.
-        
-        I build custom AI tools for Nigerian businesses to eliminate manual data entry.
-        
-        **My Solutions:**
-        * **For Logistics:** I convert scanned Waybills & Invoices into Excel instantly.
-        * **For Travel Agents:** I audit Bank Statements for 'Visa Risks' (Lump Sums) in seconds.
-        
-        👉 **Select a tool from the Sidebar to start.**
-        """)
-
-# ==========================================
-# PAGE 2: LOGISTICS AUDITOR (Restored)
-# ==========================================
-elif page == "🚛 Logistics Auditor":
-    st.title("🚛 Logistics Document Processor")
-    st.markdown("Extract data from Invoices, Waybills, and Manifests.")
-    
-    uploaded_files = st.file_uploader("Upload Logistics PDFs", type="pdf", accept_multiple_files=True)
-    
-    if st.button("🚀 Process Waybills") and uploaded_files:
-        client = Groq(api_key=API_KEY)
-        master_data = []
-        bar = st.progress(0)
-        
-        for idx, file in enumerate(uploaded_files):
-            try:
-                with pdfplumber.open(file) as pdf:
-                    text = pdf.pages[0].extract_text() or ""
-                
-                # Logistics Prompt
-                prompt = f"""
-                Extract 4 fields. Return ONLY a CSV line separated by PIPES (|).
-                Format: Date | Waybill_Number | Vendor_Name | Total_Amount
-                Text: {text[:4000]}
-                """
-                
-                resp = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                
-                # Parse Result
-                line = resp.choices[0].message.content
-                parts = line.split('|')
-                
-                master_data.append({
-                    "File": file.name,
-                    "Date": parts[0].strip() if len(parts)>0 else "-",
-                    "Waybill #": parts[1].strip() if len(parts)>1 else "-",
-                    "Vendor": parts[2].strip() if len(parts)>2 else "-",
-                    "Amount": parts[3].strip() if len(parts)>3 else "0"
-                })
-            except Exception as e:
-                st.error(f"Error on {file.name}: {e}")
-            
-            bar.progress((idx+1)/len(uploaded_files))
-            
-        if master_data:
-            st.success("Processing Complete!")
-            st.dataframe(pd.DataFrame(master_data))
-
-# ==========================================
-# PAGE 3: VISA AUDITOR (The Working Fix)
-# ==========================================
-elif page == "🛂 Visa Statement Auditor":
-    st.title("🛂 Visa Risk Auditor")
+elif page == "🛂 Visa Auditor":
+    st.title("🛂 Visa Statement Auditor")
     uploaded_file = st.file_uploader("Upload Bank Statement (PDF)", type="pdf")
     salary = st.number_input("Client Salary (₦)", value=200000, step=10000)
 
@@ -134,7 +55,7 @@ elif page == "🛂 Visa Statement Auditor":
                 st.error("❌ Error: Scanned Image detected. Use a digital PDF.")
                 st.stop()
 
-            # 2. ASK AI
+            # 2. ASK AI (PIPE SEPARATOR, NO HEADERS)
             status.info("AI Analyzing...")
             client = Groq(api_key=API_KEY)
             
@@ -146,6 +67,7 @@ elif page == "🛂 Visa Statement Auditor":
             Rules:
             - If Credit is empty/missing, put 0.
             - If Debit is empty/missing, put 0.
+            - Do not write 'Here is the data'. Just the data.
             
             TEXT:
             {text_data[:6000]}
@@ -158,7 +80,8 @@ elif page == "🛂 Visa Statement Auditor":
             
             raw_ai_text = resp.choices[0].message.content
 
-            # 3. CLEAN & PARSE
+            # 3. FORCE-FIELD PARSING
+            # Remove any intro text, keep only lines with Pipes |
             valid_lines = [line for line in raw_ai_text.split('\n') if "|" in line]
             clean_csv = "\n".join(valid_lines)
             
@@ -166,38 +89,46 @@ elif page == "🛂 Visa Statement Auditor":
                 st.error("AI could not find transaction data.")
                 st.stop()
 
+            # READ WITH NO HEADER (header=None)
             df = pd.read_csv(StringIO(clean_csv), sep="|", header=None, on_bad_lines='skip')
             
-            # 4. FORCE COLUMNS
+            # 4. MANUALLY NAME COLUMNS (The Fix for 'Error: Credit')
+            # We assume the AI followed the order: Date, Desc, Credit, Debit, Balance
+            # We check how many columns we actually got
             col_count = df.shape[1]
+            
             if col_count >= 5:
                 df.columns = ["Date", "Description", "Credit", "Debit", "Balance"] + [f"Col{i}" for i in range(5, col_count)]
+                # Drop extra columns if any
                 df = df[["Date", "Description", "Credit", "Debit", "Balance"]]
             elif col_count == 4:
+                # Sometimes AI misses Balance column
                 df.columns = ["Date", "Description", "Credit", "Debit"]
                 df["Balance"] = 0
+            else:
+                st.error(f"Structure Error: AI returned {col_count} columns instead of 5.")
+                st.write("Raw Data Preview:", df.head())
+                st.stop()
 
             # 5. CLEAN DATA
             for col in ["Credit", "Debit", "Balance"]:
-                if col in df.columns:
-                    df[col] = df[col].apply(clean_money)
+                df[col] = df[col].apply(clean_money)
 
             status.success("✅ Data Extracted!")
             
             # 6. RISK CHECK
             flags = []
             limit = salary * 3
-            if 'Credit' in df.columns:
-                suspicious = df[(df['Credit'] > limit) & (~df['Description'].str.contains('SALARY', case=False, na=False))]
-                for _, row in suspicious.iterrows():
-                    flags.append(f"🚩 **LUMP SUM:** ₦{row['Credit']:,.2f} on {row['Date']}")
+            suspicious = df[(df['Credit'] > limit) & (~df['Description'].str.contains('SALARY', case=False, na=False))]
+            
+            for _, row in suspicious.iterrows():
+                flags.append(f"🚩 **LUMP SUM:** ₦{row['Credit']:,.2f} on {row['Date']}")
 
             # DISPLAY
             st.divider()
-            if 'Credit' in df.columns:
-                c1, c2 = st.columns(2)
-                c1.metric("Total Inflow", f"₦{df['Credit'].sum():,.2f}")
-                c2.metric("Closing Balance", f"₦{df.iloc[-1]['Balance']:,.2f}")
+            c1, c2 = st.columns(2)
+            c1.metric("Total Inflow", f"₦{df['Credit'].sum():,.2f}")
+            c2.metric("Closing Balance", f"₦{df.iloc[-1]['Balance']:,.2f}")
             
             st.subheader("⚠️ Audit Report")
             if flags:

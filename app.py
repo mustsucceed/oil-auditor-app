@@ -4,27 +4,67 @@ import pandas as pd
 from groq import Groq
 from io import StringIO
 
-# --- CONFIGURATION ---
-st.set_page_config(page_title="DataFlow Automations", page_icon="🚀", layout="wide")
+# --- 1. CONFIGURATION (Must be first) ---
+st.set_page_config(page_title="DataFlow Automations", page_icon="🔒", layout="wide")
 
-# --- SECURE API ---
+# --- 2. PASSWORD PROTECTION SYSTEM ---
+def check_password():
+    """Returns `True` if the user had the correct password."""
+
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        if st.session_state["password"] == st.secrets["APP_PASSWORD"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # don't store password
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # First run, show input for password.
+        st.markdown("## 🔒 Restricted Access")
+        st.text_input(
+            "Please enter the Client Access Key:", type="password", on_change=password_entered, key="password"
+        )
+        st.info("To purchase an access key, contact support: [Your Phone Number]")
+        return False
+    elif not st.session_state["password_correct"]:
+        # Password incorrect, show input again.
+        st.markdown("## 🔒 Restricted Access")
+        st.text_input(
+            "Please enter the Client Access Key:", type="password", on_change=password_entered, key="password"
+        )
+        st.error("❌ Access Denied. Incorrect Key.")
+        return False
+    else:
+        # Password correct.
+        return True
+
+# 🛑 STOP HERE IF PASSWORD IS WRONG
+if not check_password():
+    st.stop()
+
+# --- 3. SECURE API CONNECTION ---
 try:
     if "GROQ_API_KEY" in st.secrets:
         API_KEY = st.secrets["GROQ_API_KEY"]
     else:
-        st.error("🚨 API Key Missing. Check Secrets.")
+        st.error("🚨 Configuration Error: GROQ_API_KEY missing in Secrets.")
         st.stop()
 except:
     st.warning("⚠️ Local Run? Check secrets.toml")
     st.stop()
 
-# --- SIDEBAR ---
+# --- 4. SIDEBAR NAVIGATION ---
 st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=80)
 st.sidebar.title("Navigation")
-st.sidebar.success("✅ System Online")
+st.sidebar.success("🔓 Logged In")
+if st.sidebar.button("Log Out"):
+    del st.session_state["password_correct"]
+    st.rerun()
+
 page = st.sidebar.radio("Go to:", ["🏠 Home / Portfolio", "🚛 Logistics Auditor", "🛂 Visa Statement Auditor"])
 
-# --- HELPER FUNCTION ---
+# --- 5. HELPER FUNCTION ---
 def clean_money(val):
     if not val: return 0.0
     s = str(val).replace(",", "").replace("₦", "").replace("Dr", "").replace("Cr", "").strip()
@@ -91,7 +131,6 @@ elif page == "🚛 Logistics Auditor":
                     messages=[{"role": "user", "content": prompt}]
                 )
                 
-                # Parse Result
                 line = resp.choices[0].message.content
                 parts = line.split('|')
                 
@@ -112,7 +151,7 @@ elif page == "🚛 Logistics Auditor":
             st.dataframe(pd.DataFrame(master_data))
 
 # ==========================================
-# PAGE 3: VISA AUDITOR
+# PAGE 3: VISA AUDITOR (The Fixed Version)
 # ==========================================
 elif page == "🛂 Visa Statement Auditor":
     st.title("🛂 Visa Risk Auditor")

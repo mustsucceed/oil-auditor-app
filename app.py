@@ -2,102 +2,121 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 from groq import Groq
-from io import StringIO
+import json
+import re
 
-# --- 1. PAGE CONFIGURATION ---
+# --- 1. CONFIGURATION ---
 st.set_page_config(page_title="DataFlow Automations", page_icon="🚀", layout="wide")
 
-# --- 2. SECURE API CONNECTION ---
+# --- 2. SECURE API ---
 try:
     if "GROQ_API_KEY" in st.secrets:
         API_KEY = st.secrets["GROQ_API_KEY"]
     else:
-        st.error("🚨 Configuration Error: API Key not found.")
+        st.error("🚨 Configuration Error: API Key not found in Secrets.")
         st.stop()
 except FileNotFoundError:
-    st.warning("⚠️ Running Locally? You need a .streamlit/secrets.toml file.")
+    st.warning("⚠️ Running Locally? Ensure you have a secrets.toml file.")
     st.stop()
 
-# --- 3. SIDEBAR NAVIGATION ---
-st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=80)
+# --- 3. SIDEBAR ---
 st.sidebar.title("Navigation")
-st.sidebar.success("✅ System Online")
-page = st.sidebar.radio("Go to:", ["🏠 Home / Portfolio", "🚛 Logistics Auditor", "🛂 Visa Statement Auditor"])
+page = st.sidebar.radio("Go to:", ["🏠 Home", "🚛 Logistics Auditor", "🛂 Visa Statement Auditor"])
 
 # --- 4. HELPER FUNCTIONS ---
-def clean_money(text):
-    """Converts text like '₦1,000,000.00' into a float."""
-    if not text: return 0.0
-    # Remove currency symbols, commas, and pipe characters just in case
-    clean = str(text).replace(",", "").replace("₦", "").replace("$", "").replace("|", "").strip()
+def clean_money(val):
+    """Converts any money text to a clean number."""
+    if not val: return 0.0
+    clean = str(val).replace(",", "").replace("₦", "").replace("$", "").replace("DR", "").strip()
     try:
         return float(clean)
     except:
         return 0.0
 
+def extract_json_from_response(content):
+    """Finds the JSON bracket { } or [ ] inside the AI's response."""
+    try:
+        # Look for a list [ ... ]
+        match = re.search(r'\[.*\]', content, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        # Look for a dict { ... }
+        match = re.search(r'\{.*\}', content, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+    except:
+        return None
+    return None
+
 # ==========================================
 # PAGE 1: HOME
 # ==========================================
-if page == "🏠 Home / Portfolio":
-    st.title("🚀 DataFlow Automations Nigeria")
-    st.markdown("### We turn piles of Paperwork into Profit.")
-    st.divider()
-    st.info("Select a tool from the Sidebar to start.")
+if page == "🏠 Home":
+    st.title("🚀 DataFlow Automations")
+    st.info("Select a tool from the sidebar to begin.")
 
 # ==========================================
-# PAGE 2: LOGISTICS AUDITOR (Pipe Fix)
+# PAGE 2: LOGISTICS AUDITOR (JSON Mode)
 # ==========================================
 elif page == "🚛 Logistics Auditor":
-    st.title("🚛 Logistics Document Processor")
-    uploaded_files = st.file_uploader("Upload Logistics PDFs", type="pdf", accept_multiple_files=True)
+    st.title("🚛 Logistics Processor")
+    uploaded_files = st.file_uploader("Upload PDFs", type="pdf", accept_multiple_files=True)
     
-    if st.button("🚀 Process Waybills") and uploaded_files:
+    if st.button("🚀 Process") and uploaded_files:
         client = Groq(api_key=API_KEY)
         master_data = []
         bar = st.progress(0)
         
         for idx, file in enumerate(uploaded_files):
+            with pdfplumber.open(file) as pdf:
+                text = pdf.pages[0].extract_text()
+            
+            # CHECK FOR SCANNED IMAGE
+            if not text or len(text) < 50:
+                st.error(f"⚠️ File '{file.name}' seems to be a scanned image (no text found). Skipping.")
+                continue
+
+            prompt = f"""
+            Extract data from this logistics document.
+            Return ONLY a valid JSON object with these keys: 
+            "Date", "Waybill_Number", "Vendor_Name", "Total_Amount".
+            If a field is missing, use "N/A".
+            
+            TEXT:
+            {text[:4000]}
+            """
+            
             try:
-                with pdfplumber.open(file) as pdf:
-                    text = pdf.pages[0].extract_text()
-                
-                # UPDATED PROMPT: Uses | instead of comma
-                prompt = f"""
-                Extract 4 fields. Return ONLY a list separated by PIPES (|).
-                Format: Date | Waybill_Number | Vendor_Name | Total_Amount
-                Text: {text[:4000]}
-                """
-                
                 resp = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
                     messages=[{"role": "user", "content": prompt}]
                 )
                 
-                # UPDATED PARSING: Split by |
-                raw_line = resp.choices[0].message.content
-                parts = raw_line.split('|')
+                # Parse JSON
+                data = extract_json_from_response(resp.choices[0].message.content)
                 
-                # Clean up whitespace around the parts
-                parts = [p.strip() for p in parts]
-                
-                master_data.append({
-                    "File": file.name,
-                    "Date": parts[0] if len(parts)>0 else "-",
-                    "Waybill #": parts[1] if len(parts)>1 else "-",
-                    "Vendor": parts[2] if len(parts)>2 else "-",
-                    "Amount": parts[3] if len(parts)>3 else "0"
-                })
+                if data:
+                    # Handle if AI returns a list or single object
+                    if isinstance(data, list): data = data[0]
+                    
+                    master_data.append({
+                        "File": file.name,
+                        "Date": data.get("Date", "-"),
+                        "Waybill #": data.get("Waybill_Number", "-"),
+                        "Vendor": data.get("Vendor_Name", "-"),
+                        "Amount": data.get("Total_Amount", "0")
+                    })
             except Exception as e:
                 st.error(f"Error on {file.name}: {e}")
             
             bar.progress((idx+1)/len(uploaded_files))
             
         if master_data:
-            st.success("Processing Complete!")
+            st.success("Done!")
             st.dataframe(pd.DataFrame(master_data))
 
 # ==========================================
-# PAGE 3: VISA AUDITOR (Pipe Fix + Robust)
+# PAGE 3: VISA AUDITOR (JSON Mode)
 # ==========================================
 elif page == "🛂 Visa Statement Auditor":
     st.title("🛂 Visa Risk Auditor")
@@ -106,76 +125,77 @@ elif page == "🛂 Visa Statement Auditor":
     
     if st.button("🔍 Run Audit") and uploaded_file:
         status = st.empty()
-        status.info("Scanning Statement...")
+        status.info("Reading PDF...")
+        
+        # 1. READ TEXT
+        with pdfplumber.open(uploaded_file) as pdf:
+            text_data = ""
+            for p in pdf.pages[:4]: 
+                extracted = p.extract_text()
+                if extracted: text_data += extracted
+        
+        # DEBUG: Check if text exists
+        if len(text_data) < 100:
+            status.error("❌ Error: This PDF looks like a SCANNED IMAGE (Picture). AI cannot read it directly. Please use a digital PDF exported from the bank app.")
+            st.stop()
+
+        # 2. ASK AI FOR JSON
+        status.info("AI Analyzing...")
+        client = Groq(api_key=API_KEY)
+        
+        prompt = f"""
+        Extract the bank transactions from the text below.
+        Return ONLY a JSON list of objects.
+        Each object must have these keys: "Date", "Description", "Credit", "Debit", "Balance".
+        If a value is missing, use 0.
+        
+        TEXT DATA:
+        {text_data[:6000]}
+        """
         
         try:
-            with pdfplumber.open(uploaded_file) as pdf:
-                text_data = ""
-                for p in pdf.pages[:4]: 
-                    extracted = p.extract_text()
-                    if extracted: text_data += extracted
-            
-            # --- THE MAGIC FIX: FORCE PIPE SEPARATOR ---
-            client = Groq(api_key=API_KEY)
-            prompt = f"""
-            Extract bank transactions.
-            Return ONLY data separated by PIPES (|).
-            Do NOT use commas to separate columns.
-            Format: Date | Description | Credit | Debit | Balance
-            If a column is empty, put 0.
-            Text: {text_data[:6000]}
-            """
-            
             resp = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
                 messages=[{"role": "user", "content": prompt}]
             )
             
-            csv_raw = resp.choices[0].message.content
+            # 3. PARSE JSON
+            ai_content = resp.choices[0].message.content
+            json_data = extract_json_from_response(ai_content)
             
-            # Filter lines
-            lines = csv_raw.split('\n')
-            clean_lines = []
-            
-            # Add Header manually to ensure it matches
-            clean_lines.append("Date|Description|Credit|Debit|Balance")
-            
-            for line in lines:
-                # Only keep lines that have pipes in them
-                if "|" in line and "Date" not in line: 
-                    clean_lines.append(line)
-            
-            cleaned_data = "\n".join(clean_lines)
-
-            # Load into Pandas using | as separator
-            if len(clean_lines) < 2:
-                st.error("AI could not find valid transaction data.")
+            if not json_data:
+                st.error("⚠️ AI could not find structured data. The statement format might be too complex.")
+                st.text_area("Debug Info (AI Output)", ai_content) # Show user what happened
                 st.stop()
 
-            # sep='|' is the key here!
-            df = pd.read_csv(StringIO(cleaned_data), sep="|", on_bad_lines='skip')
+            # 4. CONVERT TO DATAFRAME
+            df = pd.DataFrame(json_data)
             
-            # Strip whitespace from column names
-            df.columns = df.columns.str.strip()
+            # Standardize Columns
+            expected_cols = ["Date", "Description", "Credit", "Debit", "Balance"]
+            for col in expected_cols:
+                if col not in df.columns: df[col] = 0
             
             # Clean Numbers
             for col in ['Credit', 'Debit', 'Balance']:
-                if col in df.columns:
-                    df[col] = df[col].astype(str).apply(clean_money)
-                else:
-                    df[col] = 0.0
+                df[col] = df[col].apply(clean_money)
             
-            # RISK LOGIC
+            status.success("Data Extracted Successfully!")
+            
+            # 5. RISK LOGIC
             flags = []
             limit = salary * 3
-            if 'Credit' in df.columns:
-                suspicious = df[(df['Credit'] > limit)]
-                for _, row in suspicious.iterrows():
-                    flags.append(f"🚩 **LUMP SUM:** ₦{row['Credit']:,.2f} on {row['Date']}")
             
+            # Lump Sum Check
+            suspicious = df[(df['Credit'] > limit) & (~df['Description'].str.contains('SALARY', case=False, na=False))]
+            for _, row in suspicious.iterrows():
+                flags.append(f"🚩 **LUMP SUM:** ₦{row['Credit']:,.2f} on {row['Date']}")
+            
+            # Display
             st.divider()
-            if not df.empty:
-                st.metric("Total Inflow", f"₦{df['Credit'].sum():,.2f}" if 'Credit' in df.columns else "0")
+            c1, c2 = st.columns(2)
+            c1.metric("Total Inflow", f"₦{df['Credit'].sum():,.2f}")
+            c2.metric("Closing Balance", f"₦{df.iloc[-1]['Balance']:,.2f}" if not df.empty else "0")
             
             st.subheader("⚠️ Risk Report")
             if flags:
@@ -184,6 +204,6 @@ elif page == "🛂 Visa Statement Auditor":
                 st.success("✅ No obvious Red Flags found.")
                 
             st.dataframe(df)
-            
+
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"System Error: {e}")

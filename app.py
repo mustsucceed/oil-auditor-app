@@ -184,4 +184,28 @@ elif page == "🛂 Visa Statement Auditor":
 
             status.success("✅ Data Extracted!")
             
-            # 6. RISK
+            # 6. RISK CHECK
+            flags = []
+            limit = salary * 3
+            if 'Credit' in df.columns:
+                suspicious = df[(df['Credit'] > limit) & (~df['Description'].str.contains('SALARY', case=False, na=False))]
+                for _, row in suspicious.iterrows():
+                    flags.append(f"🚩 **LUMP SUM:** ₦{row['Credit']:,.2f} on {row['Date']}")
+
+            # DISPLAY
+            st.divider()
+            if 'Credit' in df.columns:
+                c1, c2 = st.columns(2)
+                c1.metric("Total Inflow", f"₦{df['Credit'].sum():,.2f}")
+                c2.metric("Closing Balance", f"₦{df.iloc[-1]['Balance']:,.2f}")
+            
+            st.subheader("⚠️ Audit Report")
+            if flags:
+                for f in flags: st.error(f)
+            else:
+                st.success("✅ Clean Sheet.")
+            
+            st.dataframe(df)
+
+        except Exception as e:
+            st.error(f"System Error: {e}")

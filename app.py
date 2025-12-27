@@ -8,32 +8,27 @@ from io import StringIO
 st.set_page_config(page_title="DataFlow Automations", page_icon="🚀", layout="wide")
 
 # --- 2. SECURE API CONNECTION ---
-# This block automatically grabs the key from the cloud.
-# It does NOT allow you to type it in the code.
 try:
     if "GROQ_API_KEY" in st.secrets:
         API_KEY = st.secrets["GROQ_API_KEY"]
     else:
-        # If the secret name is wrong or missing
         st.error("🚨 Configuration Error: API Key not found.")
         st.info("Go to Streamlit Dashboard -> Settings -> Secrets and add: GROQ_API_KEY = 'your_key'")
-        st.stop() # Stops the app here to prevent crashes
+        st.stop()
 except FileNotFoundError:
-    # This happens if you run it locally without a secrets.toml file
     st.warning("⚠️ Running Locally? You need a .streamlit/secrets.toml file.")
     st.stop()
 
 # --- 3. SIDEBAR NAVIGATION ---
 st.sidebar.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=80)
 st.sidebar.title("Navigation")
-st.sidebar.success("✅ System Online") # Visual confirmation that Key is working
+st.sidebar.success("✅ System Online")
 page = st.sidebar.radio("Go to:", ["🏠 Home / Portfolio", "🚛 Logistics Auditor", "🛂 Visa Statement Auditor"])
 
-# --- 4. HELPER FUNCTIONS (Shared Tools) ---
+# --- 4. HELPER FUNCTIONS ---
 def clean_money(text):
-    """Converts text like '₦1,000,000.00' into a number python can do math with."""
+    """Converts text like '₦1,000,000.00' into a float."""
     if not text: return 0.0
-    # Remove currency symbols and commas
     clean = str(text).replace(",", "").replace("₦", "").replace("$", "").strip()
     try:
         return float(clean)
@@ -44,7 +39,6 @@ def clean_money(text):
 # PAGE 1: HOME / PORTFOLIO
 # ==========================================
 if page == "🏠 Home / Portfolio":
-    
     st.title("🚀 DataFlow Automations Nigeria")
     st.markdown("### We turn piles of Paperwork into Profit.")
     st.divider()
@@ -53,13 +47,11 @@ if page == "🏠 Home / Portfolio":
     with col1:
         st.info("👋 **Status:** Open for Business")
         st.markdown("**📍 Location:** Lagos, Nigeria")
-        # You can add your contact info here if you want
         st.markdown("🟢 **Server:** Secure & Encrypted")
 
     with col2:
         st.markdown("""
         ### Hi, I am a Python Automation Specialist.
-        
         I build custom AI tools for Nigerian businesses to eliminate manual data entry.
         
         **My Solutions:**
@@ -68,23 +60,18 @@ if page == "🏠 Home / Portfolio":
         
         👉 **Select a tool from the Sidebar to start.**
         """)
-    
     st.divider()
-    st.image("https://raw.githubusercontent.com/streamlit/docs/main/public/images/static_table.png", caption="Sample Output")
-
 
 # ==========================================
 # PAGE 2: LOGISTICS AUDITOR (Waybills)
 # ==========================================
 elif page == "🚛 Logistics Auditor":
-    
     st.title("🚛 Logistics Document Processor")
     st.markdown("Extract data from Invoices, Waybills, and Manifests.")
     
     uploaded_files = st.file_uploader("Upload Logistics PDFs", type="pdf", accept_multiple_files=True)
     
     if st.button("🚀 Process Waybills") and uploaded_files:
-        # Initialize the AI Client using the Secure Key
         client = Groq(api_key=API_KEY)
         master_data = []
         bar = st.progress(0)
@@ -92,23 +79,19 @@ elif page == "🚛 Logistics Auditor":
         for idx, file in enumerate(uploaded_files):
             try:
                 with pdfplumber.open(file) as pdf:
-                    # Extract text from first page
                     text = pdf.pages[0].extract_text()
                 
-                # The AI Instruction
                 prompt = f"""
-                Extract 4 fields from this logistics document. Return ONLY a CSV line.
+                Extract 4 fields. Return ONLY a CSV line.
                 Format: Date, Waybill_Number, Vendor_Name, Total_Amount
                 Text: {text[:4000]}
                 """
                 
-                # Call AI
                 resp = client.chat.completions.create(
                     model="llama-3.1-8b-instant",
                     messages=[{"role": "user", "content": prompt}]
                 )
                 
-                # Clean up the result
                 parts = resp.choices[0].message.content.split(',')
                 master_data.append({
                     "File": file.name,
@@ -126,16 +109,13 @@ elif page == "🚛 Logistics Auditor":
             st.success("Processing Complete!")
             st.dataframe(pd.DataFrame(master_data))
 
-
 # ==========================================
-# PAGE 3: VISA STATEMENT AUDITOR
+# PAGE 3: VISA STATEMENT AUDITOR (Robust Fix)
 # ==========================================
 elif page == "🛂 Visa Statement Auditor":
-    
     st.title("🛂 Visa Risk Auditor")
     st.markdown("Scan Bank Statements for 'Lump Sum' deposits and Red Flags.")
     
-    # Inputs
     salary = st.number_input("Client's Declared Salary (₦)", value=200000, step=10000)
     uploaded_file = st.file_uploader("Upload Bank Statement (PDF)", type="pdf")
     
@@ -147,7 +127,6 @@ elif page == "🛂 Visa Statement Auditor":
             # 1. EXTRACT TEXT
             with pdfplumber.open(uploaded_file) as pdf:
                 text_data = ""
-                # Scan first 4 pages
                 for p in pdf.pages[:4]: 
                     extracted = p.extract_text()
                     if extracted: text_data += extracted
@@ -165,17 +144,40 @@ elif page == "🛂 Visa Statement Auditor":
                 messages=[{"role": "user", "content": prompt}]
             )
             
-            # 3. CREATE DATAFRAME
-            csv_data = resp.choices[0].message.content
-            # Use StringIO to pretend the string is a file
-            df = pd.read_csv(StringIO(csv_data), sep=",")
+            # 3. ROBUST CLEANING (The Fix)
+            csv_raw = resp.choices[0].message.content
+            
+            # Filter lines to find the real CSV data
+            lines = csv_raw.split('\n')
+            clean_lines = []
+            start_reading = False
+            
+            for line in lines:
+                # Look for the header row to start reading
+                if "Date" in line and "Description" in line:
+                    start_reading = True
+                if start_reading:
+                    # Remove empty lines or dashes
+                    if line.strip() and "---" not in line:
+                        clean_lines.append(line)
+            
+            cleaned_csv = "\n".join(clean_lines)
+
+            # Load into Pandas with error skipping
+            if not clean_lines:
+                st.error("AI could not find valid transaction data. Please try a clearer PDF.")
+                st.stop()
+
+            df = pd.read_csv(StringIO(cleaned_csv), sep=",", on_bad_lines='skip')
             
             # Clean Numbers
             for col in ['Credit', 'Debit', 'Balance']:
                 if col in df.columns:
-                    df[col] = df[col].apply(clean_money)
+                    df[col] = df[col].astype(str).apply(clean_money)
+                else:
+                    df[col] = 0.0 # Fill missing columns with 0
             
-            # 4. RISK LOGIC (The "Visa Officer" Brain)
+            # 4. RISK LOGIC
             flags = []
             
             # Check A: Lump Sum (>3x Salary)
@@ -185,7 +187,7 @@ elif page == "🛂 Visa Statement Auditor":
                 for _, row in suspicious.iterrows():
                     flags.append(f"🚩 **LUMP SUM:** ₦{row['Credit']:,.2f} on {row['Date']}")
                 
-            # Check B: Account Padding (High Inflow vs Low Balance)
+            # Check B: Account Padding
             if not df.empty and 'Balance' in df.columns:
                 last_bal = df.iloc[-1]['Balance']
                 total_credit = df['Credit'].sum() if 'Credit' in df.columns else 0

@@ -13,7 +13,6 @@ try:
         API_KEY = st.secrets["GROQ_API_KEY"]
     else:
         st.error("🚨 Configuration Error: API Key not found.")
-        st.info("Go to Streamlit Dashboard -> Settings -> Secrets and add: GROQ_API_KEY = 'your_key'")
         st.stop()
 except FileNotFoundError:
     st.warning("⚠️ Running Locally? You need a .streamlit/secrets.toml file.")
@@ -29,46 +28,27 @@ page = st.sidebar.radio("Go to:", ["🏠 Home / Portfolio", "🚛 Logistics Audi
 def clean_money(text):
     """Converts text like '₦1,000,000.00' into a float."""
     if not text: return 0.0
-    clean = str(text).replace(",", "").replace("₦", "").replace("$", "").strip()
+    # Remove currency symbols, commas, and pipe characters just in case
+    clean = str(text).replace(",", "").replace("₦", "").replace("$", "").replace("|", "").strip()
     try:
         return float(clean)
     except:
         return 0.0
 
 # ==========================================
-# PAGE 1: HOME / PORTFOLIO
+# PAGE 1: HOME
 # ==========================================
 if page == "🏠 Home / Portfolio":
     st.title("🚀 DataFlow Automations Nigeria")
     st.markdown("### We turn piles of Paperwork into Profit.")
     st.divider()
-
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.info("👋 **Status:** Open for Business")
-        st.markdown("**📍 Location:** Lagos, Nigeria")
-        st.markdown("🟢 **Server:** Secure & Encrypted")
-
-    with col2:
-        st.markdown("""
-        ### Hi, I am a Python Automation Specialist.
-        I build custom AI tools for Nigerian businesses to eliminate manual data entry.
-        
-        **My Solutions:**
-        * **For Logistics:** I convert scanned Waybills & Invoices into Excel instantly.
-        * **For Travel Agents:** I audit Bank Statements for 'Visa Risks' (Lump Sums) in seconds.
-        
-        👉 **Select a tool from the Sidebar to start.**
-        """)
-    st.divider()
+    st.info("Select a tool from the Sidebar to start.")
 
 # ==========================================
-# PAGE 2: LOGISTICS AUDITOR (Waybills)
+# PAGE 2: LOGISTICS AUDITOR (Pipe Fix)
 # ==========================================
 elif page == "🚛 Logistics Auditor":
     st.title("🚛 Logistics Document Processor")
-    st.markdown("Extract data from Invoices, Waybills, and Manifests.")
-    
     uploaded_files = st.file_uploader("Upload Logistics PDFs", type="pdf", accept_multiple_files=True)
     
     if st.button("🚀 Process Waybills") and uploaded_files:
@@ -81,9 +61,10 @@ elif page == "🚛 Logistics Auditor":
                 with pdfplumber.open(file) as pdf:
                     text = pdf.pages[0].extract_text()
                 
+                # UPDATED PROMPT: Uses | instead of comma
                 prompt = f"""
-                Extract 4 fields. Return ONLY a CSV line.
-                Format: Date, Waybill_Number, Vendor_Name, Total_Amount
+                Extract 4 fields. Return ONLY a list separated by PIPES (|).
+                Format: Date | Waybill_Number | Vendor_Name | Total_Amount
                 Text: {text[:4000]}
                 """
                 
@@ -92,7 +73,13 @@ elif page == "🚛 Logistics Auditor":
                     messages=[{"role": "user", "content": prompt}]
                 )
                 
-                parts = resp.choices[0].message.content.split(',')
+                # UPDATED PARSING: Split by |
+                raw_line = resp.choices[0].message.content
+                parts = raw_line.split('|')
+                
+                # Clean up whitespace around the parts
+                parts = [p.strip() for p in parts]
+                
                 master_data.append({
                     "File": file.name,
                     "Date": parts[0] if len(parts)>0 else "-",
@@ -110,12 +97,10 @@ elif page == "🚛 Logistics Auditor":
             st.dataframe(pd.DataFrame(master_data))
 
 # ==========================================
-# PAGE 3: VISA STATEMENT AUDITOR (Robust Fix)
+# PAGE 3: VISA AUDITOR (Pipe Fix + Robust)
 # ==========================================
 elif page == "🛂 Visa Statement Auditor":
     st.title("🛂 Visa Risk Auditor")
-    st.markdown("Scan Bank Statements for 'Lump Sum' deposits and Red Flags.")
-    
     salary = st.number_input("Client's Declared Salary (₦)", value=200000, step=10000)
     uploaded_file = st.file_uploader("Upload Bank Statement (PDF)", type="pdf")
     
@@ -124,17 +109,19 @@ elif page == "🛂 Visa Statement Auditor":
         status.info("Scanning Statement...")
         
         try:
-            # 1. EXTRACT TEXT
             with pdfplumber.open(uploaded_file) as pdf:
                 text_data = ""
                 for p in pdf.pages[:4]: 
                     extracted = p.extract_text()
                     if extracted: text_data += extracted
             
-            # 2. AI PARSING
+            # --- THE MAGIC FIX: FORCE PIPE SEPARATOR ---
             client = Groq(api_key=API_KEY)
             prompt = f"""
-            Extract bank transactions. Return ONLY CSV with headers: Date, Description, Credit, Debit, Balance.
+            Extract bank transactions.
+            Return ONLY data separated by PIPES (|).
+            Do NOT use commas to separate columns.
+            Format: Date | Description | Credit | Debit | Balance
             If a column is empty, put 0.
             Text: {text_data[:6000]}
             """
@@ -144,62 +131,51 @@ elif page == "🛂 Visa Statement Auditor":
                 messages=[{"role": "user", "content": prompt}]
             )
             
-            # 3. ROBUST CLEANING (The Fix)
             csv_raw = resp.choices[0].message.content
             
-            # Filter lines to find the real CSV data
+            # Filter lines
             lines = csv_raw.split('\n')
             clean_lines = []
-            start_reading = False
+            
+            # Add Header manually to ensure it matches
+            clean_lines.append("Date|Description|Credit|Debit|Balance")
             
             for line in lines:
-                # Look for the header row to start reading
-                if "Date" in line and "Description" in line:
-                    start_reading = True
-                if start_reading:
-                    # Remove empty lines or dashes
-                    if line.strip() and "---" not in line:
-                        clean_lines.append(line)
+                # Only keep lines that have pipes in them
+                if "|" in line and "Date" not in line: 
+                    clean_lines.append(line)
             
-            cleaned_csv = "\n".join(clean_lines)
+            cleaned_data = "\n".join(clean_lines)
 
-            # Load into Pandas with error skipping
-            if not clean_lines:
-                st.error("AI could not find valid transaction data. Please try a clearer PDF.")
+            # Load into Pandas using | as separator
+            if len(clean_lines) < 2:
+                st.error("AI could not find valid transaction data.")
                 st.stop()
 
-            df = pd.read_csv(StringIO(cleaned_csv), sep=",", on_bad_lines='skip')
+            # sep='|' is the key here!
+            df = pd.read_csv(StringIO(cleaned_data), sep="|", on_bad_lines='skip')
+            
+            # Strip whitespace from column names
+            df.columns = df.columns.str.strip()
             
             # Clean Numbers
             for col in ['Credit', 'Debit', 'Balance']:
                 if col in df.columns:
                     df[col] = df[col].astype(str).apply(clean_money)
                 else:
-                    df[col] = 0.0 # Fill missing columns with 0
+                    df[col] = 0.0
             
-            # 4. RISK LOGIC
+            # RISK LOGIC
             flags = []
-            
-            # Check A: Lump Sum (>3x Salary)
             limit = salary * 3
-            if 'Credit' in df.columns and 'Description' in df.columns:
-                suspicious = df[(df['Credit'] > limit) & (~df['Description'].str.contains('SALARY', case=False, na=False))]
+            if 'Credit' in df.columns:
+                suspicious = df[(df['Credit'] > limit)]
                 for _, row in suspicious.iterrows():
                     flags.append(f"🚩 **LUMP SUM:** ₦{row['Credit']:,.2f} on {row['Date']}")
-                
-            # Check B: Account Padding
-            if not df.empty and 'Balance' in df.columns:
-                last_bal = df.iloc[-1]['Balance']
-                total_credit = df['Credit'].sum() if 'Credit' in df.columns else 0
-                if total_credit > (last_bal * 5) and last_bal > 0: 
-                    flags.append(f"🚩 **TURNOVER RISK:** Deposits are way higher than final balance.")
-
-            # 5. DISPLAY REPORT
+            
             st.divider()
             if not df.empty:
-                c1, c2 = st.columns(2)
-                c1.metric("Closing Balance", f"₦{df.iloc[-1]['Balance']:,.2f}" if 'Balance' in df.columns else "0")
-                c2.metric("Total Inflow", f"₦{df['Credit'].sum():,.2f}" if 'Credit' in df.columns else "0")
+                st.metric("Total Inflow", f"₦{df['Credit'].sum():,.2f}" if 'Credit' in df.columns else "0")
             
             st.subheader("⚠️ Risk Report")
             if flags:
@@ -211,4 +187,3 @@ elif page == "🛂 Visa Statement Auditor":
             
         except Exception as e:
             st.error(f"Error: {e}")
-            st.info("Tip: Ensure the PDF is digital text (not a scanned image).")

@@ -25,7 +25,7 @@ def check_password():
         st.text_input(
             "Please enter the Client Access Key:", type="password", on_change=password_entered, key="password"
         )
-        st.info("To purchase an access key, contact support: [Your Phone Number]")
+        st.info("To purchase an access key, contact support: [+234 905 143 9712]")
         return False
     elif not st.session_state["password_correct"]:
         # Password incorrect, show input again.
@@ -248,3 +248,4 @@ elif page == "🛂 Visa Statement Auditor":
 
         except Exception as e:
             st.error(f"System Error: {e}")
+

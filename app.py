@@ -62,7 +62,7 @@ if st.sidebar.button("Log Out"):
     del st.session_state["password_correct"]
     st.rerun()
 
-page = st.sidebar.radio("Go to:", ["🏠 Home / Portfolio", "🚛 Logistics Auditor", "🛂 Visa Statement Auditor"])
+page = st.sidebar.radio("Go to:", ["🏠 Home / Portfolio", "🛂 Visa Statement Auditor"])
 
 # --- 5. HELPER FUNCTION ---
 def clean_money(val):
@@ -248,5 +248,6 @@ elif page == "🛂 Visa Statement Auditor":
 
         except Exception as e:
             st.error(f"System Error: {e}")
+
 
 

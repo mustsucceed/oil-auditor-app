@@ -103,52 +103,52 @@ if page == "🏠 Home / Portfolio":
 # ==========================================
 # PAGE 2: LOGISTICS AUDITOR
 # ==========================================
-elif page == "🚛 Logistics Auditor":
-    st.title("🚛 Logistics Document Processor")
-    st.markdown("Extract data from Invoices, Waybills, and Manifests.")
+# elif page == "🚛 Logistics Auditor":
+#     st.title("🚛 Logistics Document Processor")
+#     st.markdown("Extract data from Invoices, Waybills, and Manifests.")
     
-    uploaded_files = st.file_uploader("Upload Logistics PDFs", type="pdf", accept_multiple_files=True)
+#     uploaded_files = st.file_uploader("Upload Logistics PDFs", type="pdf", accept_multiple_files=True)
     
-    if st.button("🚀 Process Waybills") and uploaded_files:
-        client = Groq(api_key=API_KEY)
-        master_data = []
-        bar = st.progress(0)
+#     if st.button("🚀 Process Waybills") and uploaded_files:
+#         client = Groq(api_key=API_KEY)
+#         master_data = []
+#         bar = st.progress(0)
         
-        for idx, file in enumerate(uploaded_files):
-            try:
-                with pdfplumber.open(file) as pdf:
-                    text = pdf.pages[0].extract_text() or ""
+#         for idx, file in enumerate(uploaded_files):
+#             try:
+#                 with pdfplumber.open(file) as pdf:
+#                     text = pdf.pages[0].extract_text() or ""
                 
-                # Logistics Prompt
-                prompt = f"""
-                Extract 4 fields. Return ONLY a CSV line separated by PIPES (|).
-                Format: Date | Waybill_Number | Vendor_Name | Total_Amount
-                Text: {text[:4000]}
-                """
+#                 # Logistics Prompt
+#                 prompt = f"""
+#                 Extract 4 fields. Return ONLY a CSV line separated by PIPES (|).
+#                 Format: Date | Waybill_Number | Vendor_Name | Total_Amount
+#                 Text: {text[:4000]}
+#                 """
                 
-                resp = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
-                    messages=[{"role": "user", "content": prompt}]
-                )
+#                 resp = client.chat.completions.create(
+#                     model="llama-3.1-8b-instant",
+#                     messages=[{"role": "user", "content": prompt}]
+#                 )
                 
-                line = resp.choices[0].message.content
-                parts = line.split('|')
+#                 line = resp.choices[0].message.content
+#                 parts = line.split('|')
                 
-                master_data.append({
-                    "File": file.name,
-                    "Date": parts[0].strip() if len(parts)>0 else "-",
-                    "Waybill #": parts[1].strip() if len(parts)>1 else "-",
-                    "Vendor": parts[2].strip() if len(parts)>2 else "-",
-                    "Amount": parts[3].strip() if len(parts)>3 else "0"
-                })
-            except Exception as e:
-                st.error(f"Error on {file.name}: {e}")
+#                 master_data.append({
+#                     "File": file.name,
+#                     "Date": parts[0].strip() if len(parts)>0 else "-",
+#                     "Waybill #": parts[1].strip() if len(parts)>1 else "-",
+#                     "Vendor": parts[2].strip() if len(parts)>2 else "-",
+#                     "Amount": parts[3].strip() if len(parts)>3 else "0"
+#                 })
+#             except Exception as e:
+#                 st.error(f"Error on {file.name}: {e}")
             
-            bar.progress((idx+1)/len(uploaded_files))
+#             bar.progress((idx+1)/len(uploaded_files))
             
-        if master_data:
-            st.success("Processing Complete!")
-            st.dataframe(pd.DataFrame(master_data))
+#         if master_data:
+#             st.success("Processing Complete!")
+#             st.dataframe(pd.DataFrame(master_data))
 
 # ==========================================
 # PAGE 3: VISA AUDITOR (The Fixed Version)
@@ -248,4 +248,5 @@ elif page == "🛂 Visa Statement Auditor":
 
         except Exception as e:
             st.error(f"System Error: {e}")
+
 
